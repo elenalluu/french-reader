@@ -184,6 +184,57 @@
       min-height: 1.2em;
     }
 
+    /* ── Text Input ──────────────────────────────────────────── */
+    .or-divider {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin: 1.5rem 0 1rem;
+    }
+
+    /* ── Text Panel ──────────────────────────────────────────── */
+    #text-panel {
+      max-width: 480px;
+      width: 100%;
+      text-align: left;
+    }
+
+    #text-input {
+      width: 100%;
+      min-height: 120px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text);
+      resize: vertical;
+      transition: border-color 0.15s;
+    }
+
+    #text-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    #read-text-btn {
+      margin-top: 0.75rem;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      padding: 0.4rem 1.2rem;
+      transition: opacity 0.15s;
+    }
+
+    #read-text-btn:hover { opacity: 0.85; }
+
+    #text-body { outline: none; }
+
     /* ── Main Content ────────────────────────────────────────── */
     #content {
       max-width: 720px;
@@ -230,21 +281,6 @@
     }
 
     /* ── Clickable Words ─────────────────────────────────────── */
-    .word {
-      cursor: pointer;
-      border-bottom: 1px solid transparent;
-      transition: border-color 0.1s;
-      border-radius: 1px;
-    }
-
-    .word:hover {
-      border-bottom-color: var(--hover-line);
-    }
-
-    .word.active {
-      background: var(--active-bg);
-      border-bottom-color: var(--accent);
-    }
 
     /* ── Tooltip Popup ───────────────────────────────────────── */
     #popup {
@@ -340,7 +376,6 @@
     @media print {
       #site-header, #popup, #upload-zone { display: none !important; }
       #content { display: block !important; }
-      .word { cursor: text; }
     }
   </style>
 </head>
@@ -364,16 +399,21 @@
   <div id="drop-area" role="button" tabindex="0" aria-label="Drop zone for PDF or .docx files">
     <div id="drop-icon">&#128196;</div>
     <div id="drop-label">Drop a French document here</div>
-    <div id="drop-sub">.pdf or .docx</div>
+    <div id="drop-sub">.pdf, .docx, or .epub</div>
     <button id="browse-btn" type="button">Browse&hellip;</button>
-    <input id="file-input" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+    <input id="file-input" type="file" accept=".pdf,.docx,.epub,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/epub+zip">
     <div id="upload-error" aria-live="polite"></div>
+  </div>
+  <div id="text-panel">
+    <div class="or-divider">— or —</div>
+    <textarea id="text-input" placeholder="Paste or type French text here…" rows="6"></textarea>
+    <button id="read-text-btn" type="button">Read text</button>
   </div>
 </div>
 
 <!-- ── Main Text ── -->
 <main id="content">
-  <div id="text-body"></div>
+  <div id="text-body" contenteditable="true" spellcheck="false"></div>
 </main>
 
 <!-- ── Popup Tooltip ── -->
@@ -393,30 +433,12 @@
 <!-- ── External Scripts ── -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"
         onerror="window._mammothError=true"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <!-- ── Application Logic ── -->
 <script>
 (function () {
   'use strict';
-
-  // ── French Tokenizer ───────────────────────────────────────────────────────
-
-  // French word chars: ASCII letters + full Latin extended range + œŒæÆ
-  const WORD_RE = /([A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF\u0152\u0153\u00C6\u00E6]+)/;
-
-  function tokenize(str) {
-    const tokens = [];
-    const parts = str.split(WORD_RE);
-    for (const part of parts) {
-      if (!part) continue;
-      if (/[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF\u0152\u0153\u00C6\u00E6]/.test(part)) {
-        tokens.push({ type: 'word', value: part });
-      } else {
-        tokens.push({ type: 'punct', value: part });
-      }
-    }
-    return tokens;
-  }
 
   function normalize(w) {
     return w.toLowerCase(); // preserve accents for Wiktionary lookups
@@ -556,18 +578,7 @@
 
         paragraphs.forEach(paraText => {
           const p = document.createElement('p');
-          const tokens = tokenize(paraText);
-          for (const tok of tokens) {
-            if (tok.type === 'word') {
-              const span = document.createElement('span');
-              span.className = 'word';
-              span.dataset.raw = tok.value;
-              span.textContent = tok.value;
-              p.appendChild(span);
-            } else {
-              p.appendChild(document.createTextNode(tok.value));
-            }
-          }
+          p.textContent = paraText;
           container.appendChild(p);
         });
 
@@ -591,8 +602,8 @@
       uploadZone.style.display = 'none';
       content.style.display = 'block';
       docTitleEl.textContent = docTitle;
-      docMeta.textContent = 'Click any word for its definition \u2022 Wiktionary (French)';
-      newDocBtn.style.display = '';
+      docMeta.textContent = 'Double-click any word for its definition \u2022 Wiktionary (French)';
+      newDocBtn.style.display = 'inline-block';
       chapterNav.style.display = 'none';
 
     } catch (err) {
@@ -615,10 +626,72 @@
       const arrayBuffer = await file.arrayBuffer();
       const result = await mammoth.convertToHtml({ arrayBuffer });
       const textData = extractStructure(result.value, file.name);
+      textInput.value = (textData.chapters || []).flatMap(ch => ch.paragraphs || []).join('\n\n');
       buildDOM(textData);
     } catch (err) {
       uploadError.textContent = 'Error reading document: ' + (err.message || err);
     }
+  }
+
+  // ── EPUB Loader ────────────────────────────────────────────────────────────
+
+  function flattenEpubBody(body) {
+    const parts = [];
+    function walk(node) {
+      if (node.nodeType !== 1) return;
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'h1' || tag === 'h2' || tag === 'h3') {
+        parts.push('<' + tag + '>' + node.textContent + '</' + tag + '>');
+      } else if (tag === 'p' || tag === 'li') {
+        const t = node.textContent.trim();
+        if (t) parts.push('<p>' + t + '</p>');
+      } else {
+        for (const child of node.children) walk(child);
+      }
+    }
+    for (const child of body.children) walk(child);
+    return parts.join('');
+  }
+
+  async function loadEpub(file) {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+
+    // Find the OPF file path from container.xml
+    const containerXml = await zip.file('META-INF/container.xml').async('text');
+    const parser = new DOMParser();
+    const container = parser.parseFromString(containerXml, 'application/xml');
+    const opfPath = container.querySelector('rootfile').getAttribute('full-path');
+    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+
+    // Parse OPF to get spine order
+    const opfXml = await zip.file(opfPath).async('text');
+    const opf = parser.parseFromString(opfXml, 'application/xml');
+    const manifestItems = {};
+    opf.querySelectorAll('manifest item').forEach(item => {
+      manifestItems[item.getAttribute('id')] = item.getAttribute('href');
+    });
+    const spineIds = [...opf.querySelectorAll('spine itemref')].map(r => r.getAttribute('idref'));
+
+    // Extract structure from each spine item
+    const allChapters = [];
+    let chapterOffset = 0;
+    for (const id of spineIds) {
+      const href = manifestItems[id];
+      if (!href) continue;
+      const fullPath = opfDir + href;
+      const entry = zip.file(fullPath) || zip.file(decodeURIComponent(fullPath));
+      if (!entry) continue;
+      const html = await entry.async('text');
+      const doc = parser.parseFromString(html, 'text/html');
+      const result = extractStructure(flattenEpubBody(doc.body), file.name);
+      for (const ch of result.chapters) {
+        ch.id = 'section' + (++chapterOffset);
+        allChapters.push(ch);
+      }
+    }
+
+    const title = file.name.replace(/\.epub$/i, '').replace(/[_-]/g, ' ');
+    return { title, chapters: allChapters };
   }
 
   // ── File Router ────────────────────────────────────────────────────────────
@@ -633,8 +706,16 @@
       await loadPdf(file);
     } else if (file.name.match(/\.docx$/i)) {
       await loadDocx(file);
+    } else if (file.name.match(/\.epub$/i) || file.type === 'application/epub+zip') {
+      try {
+        const epubData = await loadEpub(file);
+        textInput.value = (epubData.chapters || []).flatMap(ch => ch.paragraphs || []).join('\n\n');
+        buildDOM(epubData);
+      } catch (err) {
+        uploadError.textContent = 'Error reading EPUB: ' + (err.message || err);
+      }
     } else {
-      uploadError.textContent = 'Unsupported file type. Please upload a .pdf or .docx file.';
+      uploadError.textContent = 'Unsupported file type. Please upload a .pdf, .docx, or .epub file.';
     }
   }
 
@@ -652,8 +733,10 @@
   const browseBtn   = document.getElementById('browse-btn');
   const uploadError = document.getElementById('upload-error');
   const errorBanner = document.getElementById('error-banner');
+  const readTextBtn = document.getElementById('read-text-btn');
+  const textInput   = document.getElementById('text-input');
 
-  // ── DOM Building (for .docx) ───────────────────────────────────────────────
+  // ── DOM Building ───────────────────────────────────────────────────────────
 
   function buildDOM(textData) {
     textBody.innerHTML = '';
@@ -681,18 +764,7 @@
 
       (chapter.paragraphs || []).forEach(paraText => {
         const p = document.createElement('p');
-        const tokens = tokenize(paraText);
-        for (const tok of tokens) {
-          if (tok.type === 'word') {
-            const span = document.createElement('span');
-            span.className = 'word';
-            span.dataset.raw = tok.value;
-            span.textContent = tok.value;
-            p.appendChild(span);
-          } else {
-            p.appendChild(document.createTextNode(tok.value));
-          }
-        }
+        p.textContent = paraText;
         section.appendChild(p);
       });
 
@@ -704,8 +776,8 @@
     uploadZone.style.display = 'none';
     content.style.display = 'block';
     docTitleEl.textContent = textData.title || 'French document';
-    docMeta.textContent = 'Click any word for its definition \u2022 Wiktionary (French)';
-    newDocBtn.style.display = '';
+    docMeta.textContent = 'Double-click any word for its definition \u2022 Wiktionary (French)';
+    newDocBtn.style.display = 'inline-block';
     chapterNav.style.display = chapters.length <= 1 ? 'none' : '';
   }
 
@@ -743,14 +815,11 @@
   const popWikt  = document.getElementById('popup-wikt-link');
   const popClose = document.getElementById('popup-close');
 
-  let activeSpan = null;
+  let activeRange = null;
 
-  function showPopup(spanEl) {
-    if (activeSpan) activeSpan.classList.remove('active');
-    activeSpan = spanEl;
-    spanEl.classList.add('active');
+  function showPopup(rawWord, range) {
+    activeRange = range;
 
-    const rawWord = spanEl.dataset.raw;
     popLemma.textContent = rawWord;
 
     const enc = encodeURIComponent(normalize(rawWord));
@@ -760,11 +829,11 @@
     popWikt.href = wiktUrl;
 
     popup.classList.add('visible');
-    positionPopup(spanEl);
+    positionPopup(range);
   }
 
-  function positionPopup(spanEl) {
-    const rect  = spanEl.getBoundingClientRect();
+  function positionPopup(range) {
+    const rect  = range.getBoundingClientRect();
     const scrollY = window.scrollY;
     const scrollX = window.scrollX;
     const popH  = popup.offsetHeight;
@@ -788,20 +857,17 @@
 
   function hidePopup() {
     popup.classList.remove('visible');
-    if (activeSpan) {
-      activeSpan.classList.remove('active');
-      activeSpan = null;
-    }
+    activeRange = null;
   }
 
-  // ── Word Click Handler ─────────────────────────────────────────────────────
+  // ── Word Double-click Handler ──────────────────────────────────────────────
 
-  textBody.addEventListener('click', e => {
-    if (!e.target.matches('.word')) return;
-    const span = e.target;
-    if (span === activeSpan) { hidePopup(); return; }
-    showPopup(span);
-    e.stopPropagation();
+  textBody.addEventListener('dblclick', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+    const rawWord = sel.toString().trim();
+    if (!rawWord || !/[A-Za-z\u00C0-\u00FF]/.test(rawWord)) return;
+    showPopup(rawWord, sel.getRangeAt(0));
   });
 
   document.addEventListener('click', e => {
@@ -815,11 +881,23 @@
   });
 
   window.addEventListener('scroll', () => {
-    if (activeSpan && popup.classList.contains('visible')) positionPopup(activeSpan);
+    if (activeRange && popup.classList.contains('visible')) positionPopup(activeRange);
   }, { passive: true });
 
   window.addEventListener('resize', () => {
-    if (activeSpan && popup.classList.contains('visible')) positionPopup(activeSpan);
+    if (activeRange && popup.classList.contains('visible')) positionPopup(activeRange);
+  });
+
+  // ── Direct Text Input ──────────────────────────────────────────────────────
+
+  readTextBtn.addEventListener('click', () => {
+    const raw = textInput.value.trim();
+    if (!raw) return;
+    const paragraphs = raw.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    buildDOM({
+      title: 'Text',
+      chapters: [{ title: '', id: 'ch0', paragraphs }]
+    });
   });
 
   // ── Upload / Drop Handling ─────────────────────────────────────────────────
@@ -877,9 +955,10 @@
     uploadZone.style.display = '';
     errorBanner.style.display = 'none';
     docTitleEl.textContent = 'French Reader';
-    docMeta.textContent = 'Drop a document here \u2022 Click any word for the dictionary';
+    docMeta.textContent = 'Drop a document here \u2022 Double-click any word for the dictionary';
     newDocBtn.style.display = 'none';
     uploadError.textContent = '';
+    textInput.value = '';
   });
 
 })();
