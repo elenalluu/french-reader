@@ -289,7 +289,7 @@
       width: 540px;
       max-width: calc(100vw - 24px);
       background: var(--popup-bg);
-      border: 1px solid var(--popup-bdr);
+      border: 6px solid var(--popup-bdr);
       border-radius: 5px;
       box-shadow: 0 4px 18px rgba(0,0,0,0.18);
       display: none;
@@ -298,6 +298,15 @@
     }
 
     #popup.visible { display: block; }
+
+    #popup.dragging {
+      cursor: grabbing;
+      user-select: none;
+    }
+
+    #popup.resizing {
+      user-select: none;
+    }
 
     #popup-header {
       display: flex;
@@ -816,6 +825,112 @@
   const popClose = document.getElementById('popup-close');
 
   let activeRange = null;
+
+  // ── Drag & Resize ─────────────────────────────────────────────────────────
+  const DRAG_BORDER = 6;
+  const CORNER_SIZE = 16;
+  const MIN_W = 240, MIN_H = 180;
+
+  const popHeader = document.getElementById('popup-header');
+  const popFooter = document.getElementById('popup-footer');
+
+  let dragging  = false, dragOffX = 0, dragOffY = 0;
+  let resizing  = false, resizeCorner = '';
+  let rsStartX  = 0, rsStartY = 0;
+  let rsInitW   = 0, rsInitH = 0, rsInitLeft = 0, rsInitTop = 0;
+
+  function getCorner(e, r) {
+    const nearL = e.clientX - r.left  < CORNER_SIZE;
+    const nearR = r.right  - e.clientX < CORNER_SIZE;
+    const nearT = e.clientY - r.top   < CORNER_SIZE;
+    const nearB = r.bottom - e.clientY < CORNER_SIZE;
+    const onBdr = e.clientX - r.left  < DRAG_BORDER || r.right  - e.clientX < DRAG_BORDER ||
+                  e.clientY - r.top   < DRAG_BORDER || r.bottom - e.clientY < DRAG_BORDER;
+    if (!onBdr && !nearL && !nearR && !nearT && !nearB) return null;
+    if (nearL && nearT) return 'nw';
+    if (nearR && nearT) return 'ne';
+    if (nearL && nearB) return 'sw';
+    if (nearR && nearB) return 'se';
+    if (onBdr) return 'edge';
+    return null;
+  }
+
+  function applyIframeHeight(totalH) {
+    const inner = totalH - popHeader.offsetHeight - popFooter.offsetHeight;
+    popFrame.style.height = Math.max(60, inner) + 'px';
+  }
+
+  popup.addEventListener('mousemove', e => {
+    if (dragging || resizing) return;
+    const r = popup.getBoundingClientRect();
+    const corner = getCorner(e, r);
+    if (corner === 'nw' || corner === 'se') popup.style.cursor = 'nwse-resize';
+    else if (corner === 'ne' || corner === 'sw') popup.style.cursor = 'nesw-resize';
+    else if (corner === 'edge') popup.style.cursor = 'grab';
+    else popup.style.cursor = 'default';
+  });
+
+  popup.addEventListener('mouseleave', () => {
+    if (!dragging && !resizing) popup.style.cursor = '';
+  });
+
+  popup.addEventListener('mousedown', e => {
+    const r = popup.getBoundingClientRect();
+    const corner = getCorner(e, r);
+    if (!corner) return;
+    e.preventDefault();
+    popFrame.style.pointerEvents = 'none';
+
+    if (corner === 'edge') {
+      dragging = true;
+      dragOffX = e.clientX - r.left;
+      dragOffY = e.clientY - r.top;
+      popup.classList.add('dragging');
+    } else {
+      resizing     = true;
+      resizeCorner = corner;
+      rsStartX     = e.clientX;
+      rsStartY     = e.clientY;
+      rsInitW      = r.width;
+      rsInitH      = r.height;
+      rsInitLeft   = r.left + window.scrollX;
+      rsInitTop    = r.top  + window.scrollY;
+      popup.classList.add('resizing');
+    }
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (dragging) {
+      popup.style.left = (e.clientX - dragOffX + window.scrollX) + 'px';
+      popup.style.top  = (e.clientY - dragOffY + window.scrollY) + 'px';
+    } else if (resizing) {
+      const dx = e.clientX - rsStartX;
+      const dy = e.clientY - rsStartY;
+      let w = rsInitW, h = rsInitH, l = rsInitLeft, t = rsInitTop;
+
+      if (resizeCorner === 'se') { w += dx; h += dy; }
+      if (resizeCorner === 'sw') { w -= dx; l += dx; h += dy; }
+      if (resizeCorner === 'ne') { w += dx; h -= dy; t += dy; }
+      if (resizeCorner === 'nw') { w -= dx; l += dx; h -= dy; t += dy; }
+
+      w = Math.max(MIN_W, w);
+      h = Math.max(MIN_H, h);
+      popup.style.width  = w + 'px';
+      popup.style.height = h + 'px';
+      popup.style.left   = l + 'px';
+      popup.style.top    = t + 'px';
+      applyIframeHeight(h);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging && !resizing) return;
+    dragging = false;
+    resizing = false;
+    popFrame.style.pointerEvents = '';
+    popup.classList.remove('dragging', 'resizing');
+    activeRange = null;  // prevent scroll/resize handlers from snapping popup back
+  });
 
   function showPopup(rawWord, range) {
     activeRange = range;
