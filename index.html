@@ -62,7 +62,13 @@
       margin-top: 0.2rem;
     }
 
-    #new-doc-btn {
+    #header-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    #new-doc-btn,
+    #nav-toggle-btn {
       background: none;
       border: 1px solid var(--rule);
       border-radius: 3px;
@@ -76,7 +82,8 @@
       display: none;
     }
 
-    #new-doc-btn:hover {
+    #new-doc-btn:hover,
+    #nav-toggle-btn:hover {
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
@@ -87,7 +94,42 @@
       gap: 0.5rem;
       flex-wrap: wrap;
       margin-top: 0.7rem;
+      overflow-y: auto;
+      transition: max-height 0.2s ease, margin-top 0.2s ease;
     }
+
+    #chapter-nav.collapsed {
+      max-height: 0 !important;
+      margin-top: 0;
+      overflow: hidden;
+    }
+
+    #chapter-nav.dragging { transition: none; }
+
+    /* Drag handle under the section list: drag to resize, click to toggle */
+    #nav-grip {
+      display: none;
+      width: 60px;
+      height: 14px;
+      margin: 0.25rem auto -0.75rem;
+      cursor: ns-resize;
+      touch-action: none;
+      position: relative;
+    }
+
+    #nav-grip::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 5px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--rule);
+      transition: background 0.15s;
+    }
+
+    #nav-grip:hover::before { background: var(--accent); }
 
     #chapter-nav button {
       background: none;
@@ -394,10 +436,14 @@
 <header id="site-header">
   <div id="header-top">
     <h1 id="doc-title">French Reader</h1>
-    <button id="new-doc-btn">New document</button>
+    <div id="header-actions">
+      <button id="nav-toggle-btn" type="button" aria-controls="chapter-nav" aria-expanded="true">Hide sections &#9652;</button>
+      <button id="new-doc-btn">New document</button>
+    </div>
   </div>
   <div class="meta" id="doc-meta">Drop a document here &bull; Click any word for the dictionary</div>
   <nav id="chapter-nav" aria-label="Sections"></nav>
+  <div id="nav-grip" role="separator" aria-orientation="horizontal" aria-label="Drag to resize sections list" title="Drag to resize · click to hide/show"></div>
 </header>
 
 <!-- ── Error Banner ── -->
@@ -613,7 +659,7 @@
       docTitleEl.textContent = docTitle;
       docMeta.textContent = 'Double-click any word for its definition \u2022 Wiktionary (French)';
       newDocBtn.style.display = 'inline-block';
-      chapterNav.style.display = 'none';
+      setNavVisible(false);
 
     } catch (err) {
       uploadError.textContent = 'Error reading PDF: ' + (err.message || err);
@@ -744,6 +790,69 @@
   const errorBanner = document.getElementById('error-banner');
   const readTextBtn = document.getElementById('read-text-btn');
   const textInput   = document.getElementById('text-input');
+  const navToggle   = document.getElementById('nav-toggle-btn');
+  const navGrip     = document.getElementById('nav-grip');
+
+  // ── Section Nav: collapse / resize ─────────────────────────────────────────
+
+  function setNavVisible(show) {
+    chapterNav.style.display = show ? '' : 'none';
+    navToggle.style.display  = show ? 'inline-block' : 'none';
+    navGrip.style.display    = show ? 'block' : 'none';
+  }
+
+  function setNavCollapsed(collapsed) {
+    chapterNav.classList.toggle('collapsed', collapsed);
+    navToggle.innerHTML = collapsed ? 'Show sections &#9662;' : 'Hide sections &#9652;';
+    navToggle.setAttribute('aria-expanded', String(!collapsed));
+  }
+
+  navToggle.addEventListener('click', () => {
+    setNavCollapsed(!chapterNav.classList.contains('collapsed'));
+  });
+
+  let gripStartY = 0, gripStartH = 0, gripMoved = false;
+
+  navGrip.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    gripStartY = e.clientY;
+    gripMoved  = false;
+    gripStartH = chapterNav.classList.contains('collapsed') ? 0 : chapterNav.getBoundingClientRect().height;
+    chapterNav.classList.add('dragging');
+    navGrip.setPointerCapture(e.pointerId);
+  });
+
+  navGrip.addEventListener('pointermove', e => {
+    if (!navGrip.hasPointerCapture(e.pointerId)) return;
+    const dy = e.clientY - gripStartY;
+    if (!gripMoved && Math.abs(dy) < 3) return;
+    if (!gripMoved) {
+      gripMoved = true;
+      setNavCollapsed(false);
+    }
+    const h = Math.max(0, Math.min(gripStartH + dy, chapterNav.scrollHeight));
+    chapterNav.style.maxHeight = h + 'px';
+  });
+
+  function endGripDrag(e) {
+    if (!navGrip.hasPointerCapture(e.pointerId)) return;
+    navGrip.releasePointerCapture(e.pointerId);
+    chapterNav.classList.remove('dragging');
+    if (!gripMoved) {
+      setNavCollapsed(!chapterNav.classList.contains('collapsed'));
+      return;
+    }
+    const h = chapterNav.getBoundingClientRect().height;
+    if (h < 12) {
+      chapterNav.style.maxHeight = '';
+      setNavCollapsed(true);
+    } else if (h >= chapterNav.scrollHeight - 2) {
+      chapterNav.style.maxHeight = '';
+    }
+  }
+
+  navGrip.addEventListener('pointerup', endGripDrag);
+  navGrip.addEventListener('pointercancel', endGripDrag);
 
   // ── DOM Building ───────────────────────────────────────────────────────────
 
@@ -787,7 +896,8 @@
     docTitleEl.textContent = textData.title || 'French document';
     docMeta.textContent = 'Double-click any word for its definition \u2022 Wiktionary (French)';
     newDocBtn.style.display = 'inline-block';
-    chapterNav.style.display = chapters.length <= 1 ? 'none' : '';
+    chapterNav.style.maxHeight = '';
+    setNavVisible(chapters.length > 1);
   }
 
   // ── Scroll Spy ─────────────────────────────────────────────────────────────
@@ -1051,6 +1161,7 @@
     hidePopup();
     textBody.innerHTML = '';
     chapterNav.innerHTML = '';
+    setNavVisible(false);
     content.style.display = 'none';
     uploadZone.style.display = '';
     errorBanner.style.display = 'none';
